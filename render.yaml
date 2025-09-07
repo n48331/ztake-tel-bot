@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: telegram-utr-bot
+    env: python
+    region: oregon
+    plan: free
+    buildCommand: pip install -r requirements-render.txt
+    startCommand: gunicorn webhook-bot:app
+    envVars:
+      - key: BOT_TOKEN
+        sync: false
+      - key: API_ENDPOINT
+        sync: false
+      - key: API_KEY
+        sync: false
+      - key: WEBHOOK_URL
+        sync: false
+      - key: PYTHON_VERSION
+        value: 3.11.0
