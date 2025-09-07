@@ -5,13 +5,15 @@ services:
     region: oregon
     plan: free
     buildCommand: pip install -r requirements-render.txt
-    startCommand: gunicorn webhook-bot:app
+    startCommand: gunicorn render-webhook-bot:app
     envVars:
       - key: BOT_TOKEN
         sync: false
       - key: API_ENDPOINT
         sync: false
       - key: API_KEY
+        sync: false
+      - key: VENDOR_ID
         sync: false
       - key: WEBHOOK_URL
         sync: false

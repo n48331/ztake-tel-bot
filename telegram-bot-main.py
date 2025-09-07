@@ -46,11 +46,15 @@ def extract_money_amounts(text):
 
 def call_external_api(utr_numbers, amounts, VENDOR_ID, user_info=None):
     """Call external API with extracted data"""
+    # Convert arrays to single values as expected by API
+    utr_value = utr_numbers[0] if utr_numbers else ""
+    amount_value = amounts[0] if amounts else 0.0
+    vendor_id_value = int(VENDOR_ID) if VENDOR_ID else 3
+    
     payload = {
-        'utr': utr_numbers,
-        'amount': amounts,
-        'vendor_id': VENDOR_ID
-
+        'utr': utr_value,
+        'amount': amount_value,
+        'vendor_id': vendor_id_value
     }
     
     headers = {

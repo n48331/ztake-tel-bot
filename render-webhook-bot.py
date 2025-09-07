@@ -57,10 +57,15 @@ class TransactionBot:
     
     def call_external_api(self, utr_numbers, amounts, original_text, user_info=None):
         """Call external API with extracted data"""
+        # Convert arrays to single values as expected by API
+        utr_value = utr_numbers[0] if utr_numbers else ""
+        amount_value = amounts[0] if amounts else 0.0
+        vendor_id_value = int(self.vendor_id) if self.vendor_id else 3
+        
         payload = {
-            'utr': utr_numbers,
-            'amount': amounts,
-            'vendor_id': self.vendor_id
+            'utr': utr_value,
+            'amount': amount_value,
+            'vendor_id': vendor_id_value
         }
         
         headers = {
@@ -70,6 +75,7 @@ class TransactionBot:
         }
         
         try:
+            logger.info(f"Sending payload to API: {payload}")
             response = requests.post(
                 self.api_endpoint, 
                 json=payload, 
@@ -77,14 +83,21 @@ class TransactionBot:
                 timeout=10
             )
             
+            logger.info(f"API response status: {response.status_code}")
+            logger.info(f"API response headers: {dict(response.headers)}")
+            
             if response.status_code == 200:
                 return {'success': True, 'data': response.json()}
             else:
-                return {
+                error_details = {
                     'success': False, 
                     'error': f'API returned status {response.status_code}',
-                    'response': response.text[:200]
+                    'response': response.text[:500],
+                    'status_code': response.status_code,
+                    'headers': dict(response.headers)
                 }
+                logger.error(f"API call failed: {error_details}")
+                return error_details
                 
         except requests.exceptions.Timeout:
             return {'success': False, 'error': 'API request timed out'}
@@ -158,7 +171,16 @@ class TransactionBot:
         if api_result['success']:
             final_msg = "✅ **Successfully sent to API!**"
         else:
-            final_msg = f"❌ **API call failed:** {api_result['error']}"
+            error_msg = f"❌ **API call failed:** {api_result['error']}"
+            
+            # Add more details for debugging
+            if 'response' in api_result and api_result['response']:
+                error_msg += f"\n\n**Server Response:**\n```\n{api_result['response'][:300]}\n```"
+            
+            if 'status_code' in api_result:
+                error_msg += f"\n**Status Code:** {api_result['status_code']}"
+            
+            final_msg = error_msg
         
         self.send_message(chat_id, final_msg)
     
@@ -284,6 +306,7 @@ def webhook_info():
             
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
 
 if __name__ == '__main__':
     if not BOT_TOKEN:
