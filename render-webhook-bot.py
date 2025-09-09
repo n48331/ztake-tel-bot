@@ -19,13 +19,23 @@ BOT_CONFIG_ENDPOINT = os.getenv('BOT_CONFIG_ENDPOINT', 'https://ztake.vercel.app
 # Global variables for bot configuration
 BOT_TOKEN = None
 AUTHORIZED_CHAT_ID = None
+LAST_CONFIG_FETCH = None
+CONFIG_CACHE_DURATION = 300  # 5 minutes in seconds
 
 # Create Flask app
 app = Flask(__name__)
 
-def fetch_bot_configuration(vendor_id):
+def fetch_bot_configuration(vendor_id, force_refresh=False):
     """Fetch bot token and chat ID from API endpoint"""
-    global BOT_TOKEN, AUTHORIZED_CHAT_ID
+    global BOT_TOKEN, AUTHORIZED_CHAT_ID, LAST_CONFIG_FETCH
+    
+    import time
+    
+    # Check if we need to refresh the configuration
+    current_time = time.time()
+    if not force_refresh and LAST_CONFIG_FETCH and (current_time - LAST_CONFIG_FETCH) < CONFIG_CACHE_DURATION:
+        logger.info("Using cached bot configuration")
+        return True
     
     try:
         url = f"{BOT_CONFIG_ENDPOINT}?vendor_id={vendor_id}"
@@ -41,10 +51,17 @@ def fetch_bot_configuration(vendor_id):
         
         if response.status_code == 200:
             config_data = response.json()
+            old_chat_id = AUTHORIZED_CHAT_ID
             BOT_TOKEN = config_data.get('bot_token')
             AUTHORIZED_CHAT_ID = config_data.get('chat_id')
+            LAST_CONFIG_FETCH = current_time
             
             logger.info(f"Bot configuration loaded: vendor_id={config_data.get('vendor_id')}, business_name={config_data.get('business_name')}")
+            
+            # Log if chat ID changed
+            if old_chat_id and old_chat_id != AUTHORIZED_CHAT_ID:
+                logger.warning(f"Chat ID changed from {old_chat_id} to {AUTHORIZED_CHAT_ID}")
+            
             return True
         else:
             logger.error(f"Failed to fetch bot configuration: {response.status_code} - {response.text}")
@@ -53,6 +70,18 @@ def fetch_bot_configuration(vendor_id):
     except Exception as e:
         logger.error(f"Error fetching bot configuration: {e}")
         return False
+
+def refresh_bot_configuration():
+    """Force refresh bot configuration"""
+    global bot
+    logger.info("Force refreshing bot configuration...")
+    
+    if fetch_bot_configuration(VENDOR_ID, force_refresh=True):
+        # Reinitialize bot with new configuration
+        bot = TransactionBot(BOT_TOKEN, API_ENDPOINT, API_KEY, VENDOR_ID, AUTHORIZED_CHAT_ID)
+        logger.info("Bot reinitialized with updated configuration")
+        return True
+    return False
 
 class TransactionBot:
     def __init__(self, token, api_endpoint, api_key, vendor_id, authorized_chat_id=None):
@@ -293,14 +322,19 @@ def webhook():
         
         logger.info(f"Received update: {update}")
         
-        # Fetch bot configuration if not already done
-        if not BOT_TOKEN or not bot:
-            if not fetch_bot_configuration(VENDOR_ID):
-                return jsonify({'error': 'Failed to fetch bot configuration'}), 500
-            
-            # Initialize bot with fetched configuration
-            bot = TransactionBot(BOT_TOKEN, API_ENDPOINT, API_KEY, VENDOR_ID, AUTHORIZED_CHAT_ID)
-            logger.info("Bot initialized with fetched configuration")
+        # Always fetch fresh bot configuration to ensure we have the latest chat ID
+        if not fetch_bot_configuration(VENDOR_ID, force_refresh=True):
+            logger.error("Failed to fetch bot configuration")
+            return jsonify({'error': 'Failed to fetch bot configuration'}), 500
+        
+        # Initialize or reinitialize bot with fresh configuration
+        bot = TransactionBot(BOT_TOKEN, API_ENDPOINT, API_KEY, VENDOR_ID, AUTHORIZED_CHAT_ID)
+        logger.info(f"Bot initialized with fresh configuration - Chat ID: {AUTHORIZED_CHAT_ID}")
+        
+        # Log the incoming chat ID for debugging
+        if 'message' in update:
+            incoming_chat_id = update['message']['chat']['id']
+            logger.info(f"Incoming message from chat ID: {incoming_chat_id}, Authorized: {AUTHORIZED_CHAT_ID}")
         
         # Handle different update types
         if 'message' in update:
@@ -392,14 +426,37 @@ def webhook_info():
 @app.route('/bot_config')
 def bot_config():
     """Get current bot configuration"""
-    global BOT_TOKEN, AUTHORIZED_CHAT_ID
+    global BOT_TOKEN, AUTHORIZED_CHAT_ID, LAST_CONFIG_FETCH
+    
+    import time
+    current_time = time.time()
+    last_fetch_ago = current_time - LAST_CONFIG_FETCH if LAST_CONFIG_FETCH else None
     
     return jsonify({
         'bot_token_configured': bool(BOT_TOKEN),
         'authorized_chat_id': AUTHORIZED_CHAT_ID,
         'vendor_id': VENDOR_ID,
-        'api_endpoint': API_ENDPOINT
+        'api_endpoint': API_ENDPOINT,
+        'last_config_fetch': LAST_CONFIG_FETCH,
+        'seconds_since_last_fetch': last_fetch_ago,
+        'cache_duration': CONFIG_CACHE_DURATION
     })
+
+@app.route('/refresh_config', methods=['POST'])
+def refresh_config():
+    """Force refresh bot configuration"""
+    if refresh_bot_configuration():
+        return jsonify({
+            'success': True,
+            'message': 'Bot configuration refreshed successfully',
+            'authorized_chat_id': AUTHORIZED_CHAT_ID,
+            'bot_token_configured': bool(BOT_TOKEN)
+        })
+    else:
+        return jsonify({
+            'success': False,
+            'message': 'Failed to refresh bot configuration'
+        }), 500
 
 
 if __name__ == '__main__':
