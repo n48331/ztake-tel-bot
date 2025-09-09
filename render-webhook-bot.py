@@ -10,21 +10,57 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Configuration from environment variables
-BOT_TOKEN = os.getenv('BOT_TOKEN')
 API_ENDPOINT = os.getenv('API_ENDPOINT', 'https://httpbin.org/post')
 API_KEY = os.getenv('API_KEY', 'test-key')
 VENDOR_ID = os.getenv('VENDOR_ID', '3')
 WEBHOOK_URL = os.getenv('WEBHOOK_URL', '')
+BOT_CONFIG_ENDPOINT = os.getenv('BOT_CONFIG_ENDPOINT', 'https://ztake.vercel.app/api/vendor/bot-token-secure')
+
+# Global variables for bot configuration
+BOT_TOKEN = None
+AUTHORIZED_CHAT_ID = None
 
 # Create Flask app
 app = Flask(__name__)
 
+def fetch_bot_configuration(vendor_id):
+    """Fetch bot token and chat ID from API endpoint"""
+    global BOT_TOKEN, AUTHORIZED_CHAT_ID
+    
+    try:
+        url = f"{BOT_CONFIG_ENDPOINT}?vendor_id={vendor_id}"
+        logger.info(f"Fetching bot configuration from: {url}")
+        
+        headers = {
+            'Authorization': f'Bearer {API_KEY}',
+            'Content-Type': 'application/json',
+            'User-Agent': 'TelegramBot-Webhook/1.0'
+        }
+        
+        response = requests.get(url, headers=headers, timeout=10)
+        
+        if response.status_code == 200:
+            config_data = response.json()
+            BOT_TOKEN = config_data.get('bot_token')
+            AUTHORIZED_CHAT_ID = config_data.get('chat_id')
+            
+            logger.info(f"Bot configuration loaded: vendor_id={config_data.get('vendor_id')}, business_name={config_data.get('business_name')}")
+            return True
+        else:
+            logger.error(f"Failed to fetch bot configuration: {response.status_code} - {response.text}")
+            return False
+            
+    except Exception as e:
+        logger.error(f"Error fetching bot configuration: {e}")
+        return False
+
 class TransactionBot:
-    def __init__(self, token, api_endpoint, api_key, vendor_id):
+    def __init__(self, token, api_endpoint, api_key, vendor_id, authorized_chat_id=None):
         self.token = token
         self.api_endpoint = api_endpoint
         self.api_key = api_key
         self.vendor_id = vendor_id
+        self.authorized_chat_id = authorized_chat_id
         
     def extract_utr_numbers(self, text):
         """Extract UTR numbers from text"""
@@ -54,6 +90,15 @@ class TransactionBot:
                     continue
         
         return amounts
+    
+    def is_authorized_chat(self, chat_id):
+        """Check if the chat ID is authorized"""
+        if not self.authorized_chat_id:
+            logger.warning("No authorized chat ID configured")
+            return False
+        
+        # Convert both to string for comparison
+        return str(chat_id) == str(self.authorized_chat_id)
     
     def call_external_api(self, utr_numbers, amounts, original_text, user_info=None):
         """Call external API with extracted data"""
@@ -126,6 +171,12 @@ class TransactionBot:
         chat_id = message['chat']['id']
         user = message.get('from', {})
         
+        # Check if chat is authorized
+        if not self.is_authorized_chat(chat_id):
+            logger.warning(f"Unauthorized chat ID: {chat_id}. Authorized: {self.authorized_chat_id}")
+            self.send_message(chat_id, "❌ Unauthorized access. This bot is not configured for this chat.")
+            return
+        
         # Extract data
         utr_numbers = self.extract_utr_numbers(text)
         amounts = self.extract_money_amounts(text)
@@ -187,6 +238,13 @@ class TransactionBot:
     def process_start_command(self, message):
         """Handle /start command"""
         chat_id = message['chat']['id']
+        
+        # Check if chat is authorized
+        if not self.is_authorized_chat(chat_id):
+            logger.warning(f"Unauthorized chat ID for /start: {chat_id}. Authorized: {self.authorized_chat_id}")
+            self.send_message(chat_id, "❌ Unauthorized access. This bot is not configured for this chat.")
+            return
+        
         welcome_text = """
 🤖 **Transaction Bot Started!**
 
@@ -201,8 +259,8 @@ Just send me any message with transaction details!
         """
         self.send_message(chat_id, welcome_text.strip())
 
-# Initialize bot
-bot = TransactionBot(BOT_TOKEN, API_ENDPOINT, API_KEY, VENDOR_ID)
+# Initialize bot (will be configured dynamically)
+bot = None
 
 # Flask routes
 @app.route('/')
@@ -212,7 +270,9 @@ def home():
         'status': 'online',
         'service': 'telegram-utr-bot',
         'message': 'Bot is running with webhooks on Render',
-        'webhook_path': f'/{BOT_TOKEN}' if BOT_TOKEN else '/webhook'
+        'webhook_path': '/webhook',
+        'vendor_id': VENDOR_ID,
+        'bot_config_endpoint': BOT_CONFIG_ENDPOINT
     })
 
 @app.route('/health')
@@ -220,11 +280,10 @@ def health():
     """Health check for Render"""
     return jsonify({'status': 'healthy'}), 200
 
-@app.route(f'/{BOT_TOKEN}', methods=['POST'])
+@app.route('/webhook', methods=['POST'])
 def webhook():
     """Handle webhook requests from Telegram"""
-    if not BOT_TOKEN:
-        return jsonify({'error': 'Bot token not configured'}), 500
+    global bot
     
     try:
         update = request.get_json()
@@ -233,6 +292,15 @@ def webhook():
             return jsonify({'error': 'No data received'}), 400
         
         logger.info(f"Received update: {update}")
+        
+        # Fetch bot configuration if not already done
+        if not BOT_TOKEN or not bot:
+            if not fetch_bot_configuration(VENDOR_ID):
+                return jsonify({'error': 'Failed to fetch bot configuration'}), 500
+            
+            # Initialize bot with fetched configuration
+            bot = TransactionBot(BOT_TOKEN, API_ENDPOINT, API_KEY, VENDOR_ID, AUTHORIZED_CHAT_ID)
+            logger.info("Bot initialized with fetched configuration")
         
         # Handle different update types
         if 'message' in update:
@@ -262,13 +330,20 @@ def webhook():
 @app.route('/set_webhook', methods=['POST'])
 def set_webhook():
     """Set webhook URL for the bot (for manual setup)"""
-    if not BOT_TOKEN:
-        return jsonify({'error': 'BOT_TOKEN not configured'}), 400
+    global bot
+    
+    # Fetch bot configuration if not already done
+    if not BOT_TOKEN or not bot:
+        if not fetch_bot_configuration(VENDOR_ID):
+            return jsonify({'error': 'Failed to fetch bot configuration'}), 500
+        
+        # Initialize bot with fetched configuration
+        bot = TransactionBot(BOT_TOKEN, API_ENDPOINT, API_KEY, VENDOR_ID, AUTHORIZED_CHAT_ID)
     
     if not WEBHOOK_URL:
         return jsonify({'error': 'WEBHOOK_URL not configured'}), 400
     
-    webhook_url = f"{WEBHOOK_URL}/{BOT_TOKEN}"
+    webhook_url = f"{WEBHOOK_URL}/webhook"
     
     try:
         url = f"https://api.telegram.org/bot{BOT_TOKEN}/setWebhook"
@@ -292,8 +367,15 @@ def set_webhook():
 @app.route('/webhook_info')
 def webhook_info():
     """Get current webhook information"""
-    if not BOT_TOKEN:
-        return jsonify({'error': 'BOT_TOKEN not configured'}), 400
+    global bot
+    
+    # Fetch bot configuration if not already done
+    if not BOT_TOKEN or not bot:
+        if not fetch_bot_configuration(VENDOR_ID):
+            return jsonify({'error': 'Failed to fetch bot configuration'}), 500
+        
+        # Initialize bot with fetched configuration
+        bot = TransactionBot(BOT_TOKEN, API_ENDPOINT, API_KEY, VENDOR_ID, AUTHORIZED_CHAT_ID)
     
     try:
         url = f"https://api.telegram.org/bot{BOT_TOKEN}/getWebhookInfo"
@@ -307,11 +389,28 @@ def webhook_info():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+@app.route('/bot_config')
+def bot_config():
+    """Get current bot configuration"""
+    global BOT_TOKEN, AUTHORIZED_CHAT_ID
+    
+    return jsonify({
+        'bot_token_configured': bool(BOT_TOKEN),
+        'authorized_chat_id': AUTHORIZED_CHAT_ID,
+        'vendor_id': VENDOR_ID,
+        'api_endpoint': API_ENDPOINT
+    })
+
 
 if __name__ == '__main__':
-    if not BOT_TOKEN:
-        logger.error("BOT_TOKEN environment variable is required!")
+    # Try to fetch initial configuration
+    if not fetch_bot_configuration(VENDOR_ID):
+        logger.error("Failed to fetch initial bot configuration!")
         exit(1)
+    
+    # Initialize bot
+    bot = TransactionBot(BOT_TOKEN, API_ENDPOINT, API_KEY, VENDOR_ID, AUTHORIZED_CHAT_ID)
+    logger.info("Bot initialized successfully")
     
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port, debug=False)
