@@ -93,7 +93,7 @@ class TransactionBot:
         
     def extract_utr_numbers(self, text):
         """Extract UTR numbers from text"""
-        pattern = r'UTR\d{9,12}'
+        pattern = r'UTR\d{9,50}'
         matches = re.findall(pattern, text, re.IGNORECASE)
         return matches
     
@@ -119,6 +119,15 @@ class TransactionBot:
                     continue
         
         return amounts
+    
+    def extract_upi_reference_numbers(self, text):
+        """Extract UPI reference numbers like 'UPI Ref no 690518190930' from SMS-style messages."""
+        # Match variants: "UPI Ref no", "UPI Ref. no", "UPI Reference No:", "UPI Ref Number -"
+        # Capture an alphanumeric reference 8-20 chars (commonly 12 digits)
+        pattern = r'(?:UPI\s*Ref(?:erence)?\s*(?:no\.?|number)?\s*[:\-]?\s*)([A-Za-z0-9]{8,20})'
+        matches = re.findall(pattern, text, re.IGNORECASE)
+        # Normalize to uppercase strings
+        return [m.upper() for m in matches]
     
     def is_authorized_chat(self, chat_id):
         """Check if the chat ID is authorized"""
@@ -208,7 +217,12 @@ class TransactionBot:
         
         # Extract data
         utr_numbers = self.extract_utr_numbers(text)
+        upi_refs = self.extract_upi_reference_numbers(text)
         amounts = self.extract_money_amounts(text)
+        
+        # If no explicit UTR found, fall back to UPI reference numbers
+        if not utr_numbers and upi_refs:
+            utr_numbers = upi_refs
         
         if not utr_numbers and not amounts:
             response_text = (
@@ -226,6 +240,9 @@ class TransactionBot:
         
         if utr_numbers:
             response_parts.append(f"📝 UTR: {', '.join(utr_numbers)}")
+        
+        if upi_refs:
+            response_parts.append(f"🏷️ UPI Ref: {', '.join(upi_refs)}")
         
         if amounts:
             amounts_str = ', '.join([f"₹{amount:,.2f}" for amount in amounts])
