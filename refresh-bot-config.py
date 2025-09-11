@@ -79,7 +79,7 @@ def test_api_directly():
     """Test the API directly to see current chat ID"""
     VENDOR_ID = os.getenv('VENDOR_ID', '3')
     API_KEY = os.getenv('API_KEY')
-    BOT_CONFIG_ENDPOINT = os.getenv('BOT_CONFIG_ENDPOINT', 'https://ztake.vercel.app/api/vendor/bot-token-secure')
+    BOT_CONFIG_ENDPOINT = os.getenv('BOT_CONFIG_ENDPOINT', 'https://ztakepayments.vercel.app/api/vendor/bot-token-secure')
     
     if not API_KEY:
         print("❌ API_KEY not found in environment variables")

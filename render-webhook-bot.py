@@ -14,7 +14,7 @@ API_ENDPOINT = os.getenv('API_ENDPOINT', 'https://httpbin.org/post')
 API_KEY = os.getenv('API_KEY', 'test-key')
 VENDOR_ID = os.getenv('VENDOR_ID', '3')
 WEBHOOK_URL = os.getenv('WEBHOOK_URL', '')
-BOT_CONFIG_ENDPOINT = os.getenv('BOT_CONFIG_ENDPOINT', 'https://ztake.vercel.app/api/vendor/bot-token-secure')
+BOT_CONFIG_ENDPOINT = os.getenv('BOT_CONFIG_ENDPOINT', 'https://ztakepayments.vercel.app/api/vendor/bot-token-secure')
 
 # Global variables for bot configuration
 BOT_TOKEN = None

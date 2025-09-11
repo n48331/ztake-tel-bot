@@ -19,7 +19,7 @@ def update_webhook():
     WEBHOOK_URL = os.getenv('WEBHOOK_URL')
     VENDOR_ID = os.getenv('VENDOR_ID', '3')
     API_KEY = os.getenv('API_KEY')
-    BOT_CONFIG_ENDPOINT = os.getenv('BOT_CONFIG_ENDPOINT', 'https://ztake.vercel.app/api/vendor/bot-token-secure')
+    BOT_CONFIG_ENDPOINT = os.getenv('BOT_CONFIG_ENDPOINT', 'https://ztakepayments.vercel.app/api/vendor/bot-token-secure')
     
     if not BOT_TOKEN:
         print("❌ BOT_TOKEN not found in environment variables")
