@@ -91,21 +91,34 @@ class TransactionBot:
         self.vendor_id = vendor_id
         self.authorized_chat_id = authorized_chat_id
         
-    def extract_utr_numbers(self, text):
-        """Extract UTR numbers from text"""
-        pattern = r'UTR\d{9,50}'
-        matches = re.findall(pattern, text, re.IGNORECASE)
+    def extract_reference_numbers(self, text):
+        """Extract reference numbers from SMS messages like 'UPI Ref no 690518190930'"""
+        # Match patterns like "UPI Ref no 690518190930", "UPI Ref. no 690518190930", etc.
+        patterns = [
+            r'UPI\s*Ref(?:erence)?\s*(?:no\.?|number)?\s*[:\-]?\s*(\d{8,20})',  # UPI Ref no 690518190930
+            r'Ref(?:erence)?\s*(?:no\.?|number)?\s*[:\-]?\s*(\d{8,20})',       # Ref no 690518190930
+            r'Transaction\s*ID[:\-]?\s*(\d{8,20})',                            # Transaction ID: 690518190930
+            r'Txn\s*ID[:\-]?\s*(\d{8,20})',                                    # Txn ID: 690518190930
+        ]
+        
+        matches = []
+        for pattern in patterns:
+            found = re.findall(pattern, text, re.IGNORECASE)
+            matches.extend(found)
+        
         return matches
     
     def extract_money_amounts(self, text):
-        """Extract money amounts from text in various formats"""
+        """Extract money amounts from text in various formats, especially SMS messages"""
         patterns = [
             r'₹\s*([\d,]+(?:\.\d{2})?)',           # ₹1,234.56
-            r'Rs\.?\s*([\d,]+(?:\.\d{2})?)',      # Rs.1234.56 or Rs 1234
+            r'Rs\.?\s*([\d,]+(?:\.\d{2})?)',      # Rs.2.00 or Rs 1234
             r'INR\s*([\d,]+(?:\.\d{2})?)',        # INR 1234.56
             r'\$\s*([\d,]+(?:\.\d{2})?)',         # $1234.56
             r'amount\s*:?\s*([\d,]+(?:\.\d{2})?)', # amount: 1234.56
             r'([\d,]+(?:\.\d{2})?)\s*(?:rupees|rs)', # 1234.56 rupees
+            r'credited\s+for\s+Rs\.?\s*([\d,]+(?:\.\d{2})?)', # credited for Rs.2.00
+            r'debited\s+for\s+Rs\.?\s*([\d,]+(?:\.\d{2})?)',  # debited for Rs.2.00
         ]
         
         amounts = []
@@ -120,14 +133,6 @@ class TransactionBot:
         
         return amounts
     
-    def extract_upi_reference_numbers(self, text):
-        """Extract UPI reference numbers like 'UPI Ref no 690518190930' from SMS-style messages."""
-        # Match variants: "UPI Ref no", "UPI Ref. no", "UPI Reference No:", "UPI Ref Number -"
-        # Capture an alphanumeric reference 8-20 chars (commonly 12 digits)
-        pattern = r'(?:UPI\s*Ref(?:erence)?\s*(?:no\.?|number)?\s*[:\-]?\s*)([A-Za-z0-9]{8,20})'
-        matches = re.findall(pattern, text, re.IGNORECASE)
-        # Normalize to uppercase strings
-        return [m.upper() for m in matches]
     
     def is_authorized_chat(self, chat_id):
         """Check if the chat ID is authorized"""
@@ -138,15 +143,15 @@ class TransactionBot:
         # Convert both to string for comparison
         return str(chat_id) == str(self.authorized_chat_id)
     
-    def call_external_api(self, utr_numbers, amounts, original_text, user_info=None):
+    def call_external_api(self, reference_numbers, amounts, original_text, user_info=None):
         """Call external API with extracted data"""
         # Convert arrays to single values as expected by API
-        utr_value = utr_numbers[0] if utr_numbers else ""
+        ref_value = reference_numbers[0] if reference_numbers else ""
         amount_value = amounts[0] if amounts else 0.0
         vendor_id_value = int(self.vendor_id) if self.vendor_id else 3
         
         payload = {
-            'utr': utr_value,
+            'ref_no': ref_value,
             'amount': amount_value,
             'vendor_id': vendor_id_value
         }
@@ -216,21 +221,16 @@ class TransactionBot:
             return
         
         # Extract data
-        utr_numbers = self.extract_utr_numbers(text)
-        upi_refs = self.extract_upi_reference_numbers(text)
+        reference_numbers = self.extract_reference_numbers(text)
         amounts = self.extract_money_amounts(text)
         
-        # If no explicit UTR found, fall back to UPI reference numbers
-        if not utr_numbers and upi_refs:
-            utr_numbers = upi_refs
-        
-        if not utr_numbers and not amounts:
+        if not reference_numbers and not amounts:
             response_text = (
-                "❌ No UTR numbers or amounts found.\n\n"
+                "❌ No reference numbers or amounts found.\n\n"
                 "**Examples:**\n"
-                "• UTR123456789\n"
-                "• ₹1,234.56\n"
-                "• Payment of ₹5000 via UTR987654321"
+                "• UPI Ref no 690518190930\n"
+                "• Rs.2.00\n"
+                "• credited for Rs.2.00 on 12-09-25 and debited from a/c no. XX0076 (UPI Ref no 690518190930)"
             )
             self.send_message(chat_id, response_text)
             return
@@ -238,11 +238,8 @@ class TransactionBot:
         # Create response message
         response_parts = ["🔍 **Extracted Data:**"]
         
-        if utr_numbers:
-            response_parts.append(f"📝 UTR: {', '.join(utr_numbers)}")
-        
-        if upi_refs:
-            response_parts.append(f"🏷️ UPI Ref: {', '.join(upi_refs)}")
+        if reference_numbers:
+            response_parts.append(f"📝 Reference No: {', '.join(reference_numbers)}")
         
         if amounts:
             amounts_str = ', '.join([f"₹{amount:,.2f}" for amount in amounts])
@@ -262,7 +259,7 @@ class TransactionBot:
         }
         
         # Call external API
-        api_result = self.call_external_api(utr_numbers, amounts, text, user_info)
+        api_result = self.call_external_api(reference_numbers, amounts, text, user_info)
         
         # Send final response
         if api_result['success']:
@@ -295,11 +292,11 @@ class TransactionBot:
 🤖 **Transaction Bot Started!**
 
 **What I can extract:**
-• UTR numbers (UTR123456789)
-• Money amounts (₹1,234.56, Rs 500, INR 1000)
+• Reference numbers (UPI Ref no 690518190930)
+• Money amounts (₹1,234.56, Rs 2.00, INR 1000)
 
-**Example:**
-"Payment of ₹15,000 via UTR123456789"
+**Example SMS:**
+"Dear Merchant, your VPA 7483185815@kbl is credited for Rs.2.00 on 12-09-25 and debited from a/c no. XX0076 (UPI Ref no 690518190930) -Karnataka Bank"
 
 Just send me any message with transaction details!
         """
