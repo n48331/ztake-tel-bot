@@ -106,7 +106,15 @@ class TransactionBot:
             found = re.findall(pattern, text, re.IGNORECASE)
             matches.extend(found)
         
-        return matches
+        # Remove duplicates while preserving order
+        seen = set()
+        unique_matches = []
+        for match in matches:
+            if match not in seen:
+                seen.add(match)
+                unique_matches.append(match)
+        
+        return unique_matches
     
     def extract_money_amounts(self, text):
         """Extract money amounts from text in various formats, especially SMS messages"""
@@ -131,7 +139,15 @@ class TransactionBot:
                 except ValueError:
                     continue
         
-        return amounts
+        # Remove duplicates while preserving order
+        seen = set()
+        unique_amounts = []
+        for amount in amounts:
+            if amount not in seen:
+                seen.add(amount)
+                unique_amounts.append(amount)
+        
+        return unique_amounts
     
     
     def is_authorized_chat(self, chat_id):
@@ -151,7 +167,7 @@ class TransactionBot:
         vendor_id_value = int(self.vendor_id) if self.vendor_id else 3
         
         payload = {
-            'ref_no': ref_value,
+            'utr': ref_value,
             'amount': amount_value,
             'vendor_id': vendor_id_value
         }
