@@ -4,7 +4,7 @@ services:
     env: python
     region: oregon
     plan: free
-    buildCommand: pip install -r requirements-render.txt
+    buildCommand: pip install -r requirements.txt
     startCommand: gunicorn render-webhook-bot:app
     envVars:
       - key: BOT_TOKEN
@@ -16,6 +16,24 @@ services:
       - key: VENDOR_ID
         sync: false
       - key: WEBHOOK_URL
+        sync: false
+      - key: PYTHON_VERSION
+        value: 3.11.0
+  - type: worker
+    name: telegram-utr-userbot
+    env: python
+    region: oregon
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: python telethon_userbot.py
+    envVars:
+      - key: BOT_CONFIG_ENDPOINT
+        sync: false
+      - key: API_ENDPOINT
+        sync: false
+      - key: API_KEY
+        sync: false
+      - key: VENDOR_ID
         sync: false
       - key: PYTHON_VERSION
         value: 3.11.0

@@ -116,23 +116,6 @@ async def help_command(update: Update, context):
 /help - Show this help message
 /test - Send a test message to verify extraction
 
-**Message Format Examples:**
-✅ "UTR123456789"
-✅ "Payment of ₹5,000 via UTR987654321"
-✅ "Received Rs 2500 from UTR111222333"
-✅ "Transfer amount: INR 10,000.00 UTR444555666"
-
-**Regex Patterns Used:**
-• UTR: `UTR\d{9,12}` - Matches UTR + 9-12 digits
-• Money: Multiple patterns for ₹, Rs, INR, $, and "amount:"
-
-**API Payload Structure:**
-```json
-{
-    "utr": ["UTR123456789"],
-    "amount": [5000.0],
-    "vendor_id": "...",
-}
 ```
     """
     await update.message.reply_text(help_text, parse_mode='Markdown')

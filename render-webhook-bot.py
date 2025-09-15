@@ -247,10 +247,10 @@ class TransactionBot:
         if not reference_numbers and not amounts:
             response_text = (
                 "❌ No reference numbers or amounts found.\n\n"
-                "**Examples:**\n"
-                "• UPI Ref no 690518190930\n"
-                "• Rs.2.00\n"
-                "• credited for Rs.2.00 on 12-09-25 and debited from a/c no. XX0076 (UPI Ref no 690518190930)"
+                # "**Examples:**\n"
+                # "• UPI Ref no 690518190930\n"
+                # "• Rs.2.00\n"
+                # "• credited for Rs.2.00 on 12-09-25 and debited from a/c no. XX0076 (UPI Ref no 690518190930)"
             )
             self.send_message(chat_id, response_text)
             return
