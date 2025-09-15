@@ -233,7 +233,7 @@ class TransactionBot:
         # Check if chat is authorized
         if not self.is_authorized_chat(chat_id):
             logger.warning(f"Unauthorized chat ID: {chat_id}. Authorized: {self.authorized_chat_id}")
-            self.send_message(chat_id, "❌ Unauthorized access. This bot is not configured for this chat.")
+            # Silently ignore to avoid noise in other chats/groups
             return
         
         # Extract data
@@ -301,7 +301,7 @@ class TransactionBot:
         # Check if chat is authorized
         if not self.is_authorized_chat(chat_id):
             logger.warning(f"Unauthorized chat ID for /start: {chat_id}. Authorized: {self.authorized_chat_id}")
-            self.send_message(chat_id, "❌ Unauthorized access. This bot is not configured for this chat.")
+            # Silently ignore to avoid noise in other chats/groups
             return
         
         welcome_text = """
@@ -369,20 +369,45 @@ def webhook():
         # Handle different update types
         if 'message' in update:
             message = update['message']
-            
+
+            # Handle group/supergroup migration to a new chat id
+            if 'migrate_to_chat_id' in message:
+                new_chat_id = message['migrate_to_chat_id']
+                logger.warning(f"Chat migrated to new id: {new_chat_id}. Updating authorized chat id in-memory.")
+                global AUTHORIZED_CHAT_ID
+                AUTHORIZED_CHAT_ID = new_chat_id
+                bot.authorized_chat_id = new_chat_id
+
             # Handle commands
-            if 'text' in message and message['text'].startswith('/'):
+            if 'text' in message and isinstance(message['text'], str) and message['text'].startswith('/'):
                 command = message['text'].split()[0]
-                
+
                 if command == '/start':
                     bot.process_start_command(message)
                 else:
-                    # Unknown command
-                    chat_id = message['chat']['id']
-                    bot.send_message(chat_id, "Unknown command. Send /start to begin.")
-            
-            # Handle regular messages
+                    # Silently ignore unknown commands to reduce noise
+                    pass
+
+            # Handle regular messages (including group messages without mention)
             elif 'text' in message:
+                bot.process_message(message)
+
+        # Edited messages
+        elif 'edited_message' in update:
+            message = update['edited_message']
+            if 'text' in message:
+                bot.process_message(message)
+
+        # Channel posts (if bot is in a channel)
+        elif 'channel_post' in update:
+            message = update['channel_post']
+            if 'text' in message:
+                bot.process_message(message)
+
+        # Edited channel posts
+        elif 'edited_channel_post' in update:
+            message = update['edited_channel_post']
+            if 'text' in message:
                 bot.process_message(message)
         
         return jsonify({'status': 'ok'}), 200
