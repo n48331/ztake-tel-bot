@@ -1,4 +1,5 @@
 import os
+from dotenv import load_dotenv
 import re
 import json
 import requests
@@ -8,6 +9,9 @@ from flask import Flask, request, jsonify
 # Setup logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# Load environment variables from .env if present
+load_dotenv()
 
 # Configuration from environment variables
 API_ENDPOINT = os.getenv('API_ENDPOINT', 'https://httpbin.org/post')
@@ -342,7 +346,7 @@ def health():
 @app.route('/webhook', methods=['POST'])
 def webhook():
     """Handle webhook requests from Telegram"""
-    global bot
+    global bot, AUTHORIZED_CHAT_ID
     
     try:
         update = request.get_json()
@@ -374,7 +378,6 @@ def webhook():
             if 'migrate_to_chat_id' in message:
                 new_chat_id = message['migrate_to_chat_id']
                 logger.warning(f"Chat migrated to new id: {new_chat_id}. Updating authorized chat id in-memory.")
-                global AUTHORIZED_CHAT_ID
                 AUTHORIZED_CHAT_ID = new_chat_id
                 bot.authorized_chat_id = new_chat_id
 
